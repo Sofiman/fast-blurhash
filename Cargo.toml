@@ -9,6 +9,7 @@ edition = "2021"
 
 [dev-dependencies]
 criterion = "0.4.0"
+#ril = { version = "0.9", features = [ "webp" ] }
 
 [[bench]]
 name = "base83"
