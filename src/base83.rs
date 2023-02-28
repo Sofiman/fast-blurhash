@@ -3,6 +3,10 @@ const CHARACTERS: [char; 83] = [
 ];
 
 pub fn encode(mut n: u32) -> String {
+    if n == 0 {
+        return CHARACTERS[0].to_string();
+    }
+
     let mut stack: [char; 6] = ['\0'; 6];
     let mut i = 0;
 
@@ -22,6 +26,11 @@ pub fn encode(mut n: u32) -> String {
 }
 
 pub fn encode_to(mut n: u32, str: &mut String) {
+    if n == 0 {
+        str.push(CHARACTERS[0]);
+        return;
+    }
+
     let mut stack: [char; 6] = ['\0'; 6];
     let mut i = 0;
 
