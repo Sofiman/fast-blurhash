@@ -7,7 +7,7 @@ use base83::encode_to;
 
 pub type Linear = [f32; 3];
 pub type Factor = [f32; 3];
-pub type Rgb = [u8; 3];
+type Rgb = [u8; 3];
 
 #[derive(Default, Clone, Debug)]
 pub struct DCTResult {
@@ -35,15 +35,23 @@ pub trait AsLinear {
     fn as_linear(&self) -> Linear;
 }
 
-impl AsLinear for &Rgb {
+impl AsLinear for Rgb {
     fn as_linear(&self) -> Linear {
         [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
     }
 }
 
-impl AsLinear for Rgb {
+impl AsLinear for [u8; 4] {
     fn as_linear(&self) -> Linear {
         [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
+    }
+}
+
+impl AsLinear for u32 {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(((self >> 16) & 0xFF) as u8), // red
+         srgb_to_linear(((self >>  8) & 0xFF) as u8), // green
+         srgb_to_linear(((self >>  0) & 0xFF) as u8)] // blue
     }
 }
 
@@ -80,8 +88,11 @@ pub fn compute_dct_iter<T: AsLinear>(image: impl Iterator<Item = T>, width: usiz
     for (i, pixel) in image.enumerate() {
         let col = pixel.as_linear();
 
-        multiply_basis(x_components, y_components, width, height,
-            i % width, i / width, &col, &mut acs);
+        let p = i as f32 / width as f32;
+        let percent_y = p / height as f32;
+        let percent_x = p.fract();
+
+        multiply_basis(x_components, y_components, percent_x, percent_y, &col, &mut acs);
     }
 
     let ac_max = if acs.len() > 1 {
@@ -103,10 +114,12 @@ pub fn compute_dct<T: AsLinear>(image: &[T], width: usize, height: usize, x_comp
     let mut acs: Vec<Factor> = vec![[0., 0., 0.]; x_components * y_components];
 
     for y in 0..height {
+        let percent_y = y as f32 / height as f32;
         for x in 0..width {
+            let percent_x = x as f32 / width as f32;
+
             let col = image[y * width + x].as_linear();
-            multiply_basis(x_components, y_components, width, height,
-                x, y, &col, &mut acs);
+            multiply_basis(x_components, y_components, percent_x, percent_y, &col, &mut acs);
         }
     }
 
@@ -122,14 +135,14 @@ pub fn compute_dct<T: AsLinear>(image: &[T], width: usize, height: usize, x_comp
     }
 }
 
-pub fn multiply_basis(x_components: usize, y_components: usize, width: usize, height: usize, x: usize, y: usize, col: &[f32; 3], acs: &mut [Factor]) {
-    for comp_y in 0..y_components {
-        let base_y = (PI * comp_y as f32 * y as f32 / height as f32).cos();
+pub fn multiply_basis(x_comps: usize, y_comps: usize, x: f32, y: f32, col: &[f32; 3], acs: &mut [Factor]) {
+    for comp_y in 0..y_comps {
+        let base_y = (PI * comp_y as f32 * y).cos();
 
-        for comp_x in 0..x_components {
-            let f = &mut acs[comp_y * x_components + comp_x];
+        for comp_x in 0..x_comps {
+            let f = &mut acs[comp_y * x_comps + comp_x];
 
-            let base_x = (PI * comp_x as f32 * x as f32 / width as f32).cos();
+            let base_x = (PI * comp_x as f32 * x).cos();
             let basis = base_y * base_x;
 
             f[0] += basis * col[0];
@@ -161,26 +174,32 @@ pub fn normalize_and_max(acs: &mut [Factor], len: usize) -> f32 {
 mod tests {
     use super::*;
 
-    const WIDTH: usize = 4;
-    const HEIGHT: usize = 4;
-    const TEST_IMAGE: [Linear; 16] = [
-        [1., 1., 1.], [0., 0., 0.], [1., 1., 1.], [0., 0., 0.],
-        [0., 0., 0.], [0., 0., 0.], [1., 1., 1.], [0., 0., 0.],
-        [1., 1., 1.], [1., 1., 1.], [1., 1., 1.], [1., 1., 1.],
-        [0., 0., 0.], [0., 0., 0.], [1., 1., 1.], [0., 0., 0.],
-    ];
-        /*
-
     #[test]
-    fn test_multiply_basis_ac() {
-        let norm = 1. / TEST_IMAGE.len() as f32;
-        let average_color = [1./2., 1./2., 1./2.]; // 8/16 of the colors are black
-        assert_eq!(multiply_basis(0, 0, &TEST_IMAGE, WIDTH, HEIGHT, norm), average_color);
-    }
+    fn test_multiply_basis() {
+        let width: usize = 4;
+        let height: usize = 4;
+        let x_comps: usize = 5;
+        let y_comps: usize = 5;
+        let image: [Linear; 16] = [
+            [1., 1., 1.], [0., 0., 0.], [1., 1., 1.], [0., 0., 0.],
+            [0., 0., 0.], [0., 0., 0.], [1., 1., 1.], [0., 0., 0.],
+            [1., 1., 1.], [1., 1., 1.], [1., 1., 1.], [1., 1., 1.],
+            [0., 0., 0.], [0., 0., 0.], [1., 1., 1.], [0., 0., 0.],
+        ];
+        let mut acs: Vec<Factor> = vec![[0., 0., 0.]; x_comps * y_comps];
 
-    #[test]
-    fn test_multiply_basis_dc02_20() {
-        let norm = 2. / TEST_IMAGE.len() as f32;
+        for y in 0..height {
+            let percent_y = y as f32 / height as f32;
+            for x in 0..width {
+                let percent_x = x as f32 / width as f32;
+                multiply_basis(x_comps, y_comps, percent_x, percent_y,
+                    &image[y * width + x], &mut acs);
+            }
+        }
+
+        let average_color = [8., 8., 8.]; // 8/16 of the colors are black
+        assert_eq!(acs[0 * x_comps + 0], average_color);
+
         // the (0, 2) kernel looks like this:
         // [   1,   1,   1,   1,
         //    ~0,  ~0,  ~0,  ~0,
@@ -191,10 +210,9 @@ mod tests {
         //    .,   .,   .,   .,
         //   -1,  -1,  -1,  -1,
         //    .,   .,   .,   .  ] => adding up to -2
-        let v = -2. * norm;
-        assert_eq!(multiply_basis(0, 2, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(acs[2 * x_comps + 0], [-2., -2., -2.]);
 
-        // the (0, 2) kernel looks like this:
+        // the (2, 0) kernel looks like this:
         // [  1,  ~0, -1,  ~0,
         //    1,  ~0, -1,  ~0,
         //    1,  ~0, -1,  ~0,
@@ -204,29 +222,20 @@ mod tests {
         //    .,   .,  -1,  .,
         //    1,   .,  -1,  .,
         //    .,   .,  -1,  .  ] => adding up to -2
-        assert_eq!(multiply_basis(2, 0, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
-    }
+        assert_eq!(acs[0 * x_comps + 2], [-2., -2., -2.]);
 
-    #[test]
-    fn test_multiply_basis_dc33() {
-        let norm = 2. / TEST_IMAGE.len() as f32;
         // the (3, 3) kernel looks like this:
         // [     1,  -0.7,  ~0,   0.7,
-        //    -0.7,   0.5,  ~0,  -0.5,
+        //    -0.7,   0.x_comps,  ~0,  -0.x_comps,
         //      ~0,    ~0,  ~0,    ~0,
-        //     0.7,  -0.5,  ~0,  -0.5  ]
+        //     0.7,  -0.x_comps,  ~0,  -0.x_comps  ]
         // Image * kernel looks like this:
         // [  1,   .,   .,   .,
         //    .,   .,   .,   .,
         //    .,   .,   .,   .,
         //    .,   .,   .,   .  ] => adding up to 1
-        let v = 1. * norm;
-        assert_eq!(multiply_basis(3, 3, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
-    }
+        assert_eq!(acs[3 * x_comps + 3], [1., 1., 1.]);
 
-    #[test]
-    fn test_multiply_basis_dc_42_24() {
-        let norm = 2. / TEST_IMAGE.len() as f32;
         // the (4, 2) kernel looks like this:
         // [  1,  -1,   1,  -1,
         //   ~0,  ~0,  ~0,  ~0,
@@ -237,8 +246,7 @@ mod tests {
         //    .,   .,   .,   .,
         //    1,  -1,   1,  -1,
         //    .,   .,   .,   .  ] => adding up to 2
-        let v = 2. * norm;
-        assert_eq!(multiply_basis(4, 2, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(acs[2 * x_comps + 4], [2., 2., 2.]);
 
         // the (2, 4) kernel looks like this:
         // [  1,  ~0,  -1,  ~0,
@@ -250,23 +258,33 @@ mod tests {
         //    .,   .,  -1,   .,
         //    1,   .,   1,   .,
         //    .,   .,  -1,   .  ] => adding up to 2
-        assert_eq!(multiply_basis(2, 4, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(acs[4 * x_comps + 2], [2., 2., 2.]);
     }
-    */
-
-    const TEST_IMAGE_RGB: [Rgb; 16] = [
-        [255,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
-        [  0,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
-        [255, 255, 255], [255, 255, 255], [  0, 255,   0], [255, 255, 255],
-        [  0,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
-    ];
-
 
     #[test]
     fn test_encode_33() {
-        assert_eq!(compute_dct(&TEST_IMAGE_RGB, WIDTH, HEIGHT, 3, 3).to_blurhash(), "KzKUZY=|HZ=|$5e9HZe9IS");
+        let image: [Rgb; 16] = [
+            [255,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
+            [  0,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
+            [255, 255, 255], [255, 255, 255], [  0, 255,   0], [255, 255, 255],
+            [  0,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
+        ];
+        assert_eq!(compute_dct(&image, 4, 4, 3, 3).to_blurhash(), "KzKUZY=|HZ=|$5e9HZe9IS");
     }
 
+    #[test]
+    fn test_encode_white() {
+        let image: [Rgb; 16] = [[255, 255, 255]; 16];
+        assert_eq!(compute_dct(&image, 4, 4, 4, 4).to_blurhash(), "U~TSUA~qfQ~q~q%MfQ%MfQfQfQfQ~q%MfQ%M");
+    }
+
+    #[test]
+    fn test_encode_black() {
+        let image: [Rgb; 16] = [[0, 0, 0]; 16];
+        assert_eq!(compute_dct(&image, 4, 4, 4, 4).to_blurhash(), "U00000fQfQfQfQfQfQfQfQfQfQfQfQfQfQfQ");
+    }
+
+    /*
     use ril::prelude::Image;
 
     impl AsLinear for &ril::pixel::Rgb {
@@ -280,9 +298,7 @@ mod tests {
         let img = Image::<ril::pixel::Rgb>::open("test.webp").unwrap();
         let w = img.width() as usize;
         let h = img.height() as usize;
-        let start = std::time::Instant::now();
         let s = compute_dct_iter(img.pixels().flatten(), w, h, 4, 7);
-        println!("compute DCT took {:?}", start.elapsed());
         assert_eq!(s.to_blurhash(), "vbHLxdSgNHxD~pX9R+i_NfNIt7V@NL%Mt7Rj-;t7e:WCj[WXV[ofM{WXbHof");
-    }
+    }*/
 }
