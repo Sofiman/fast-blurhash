@@ -146,19 +146,25 @@ pub fn decode_ascii(s: &str) -> u32 {
 pub fn decode(s: &str) -> Option<u32> {
     let mut n: u32 = 0;
 
-    if s.len() > 6 { // overflow
-        return None;
-    }
-
-    for c in s.chars() {
-        if c.is_ascii() {
-            n = n.checked_mul(83u32)? + DIGITS[c as usize] as u32;
-        } else {
-            return None;
+    let mut chars = s.chars();
+    for _ in 0..5 { // no overflow until 6th character
+        match chars.next() {
+            Some(c) if c.is_ascii() => {
+                n = n * 83 + DIGITS[c as usize] as u32;
+            },
+            Some(_) => return None, // invalid char
+            None => return Some(n) // end of string
         }
     }
 
-    Some(n)
+    match chars.next() {
+        Some(c) if c.is_ascii() => {
+            // overflow check
+            n.checked_mul(83u32)?.checked_add(DIGITS[c as usize] as u32)
+        },
+        Some(_) => None, // invalid char
+        None => Some(n) // end of string
+    }
 }
 
 #[cfg(test)]
