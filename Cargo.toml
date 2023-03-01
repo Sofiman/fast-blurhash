@@ -14,3 +14,7 @@ ril = { version = "0.9", features = [ "webp" ] }
 [[bench]]
 name = "base83"
 harness = false
+
+[[bench]]
+name = "dct"
+harness = false
