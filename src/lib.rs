@@ -3,11 +3,11 @@ pub mod convert;
 
 use std::f32::consts::PI;
 use convert::*;
-use base83::encode_to;
+use base83::encode_fixed_to;
 
 pub type Linear = [f32; 3];
 pub type Factor = [f32; 3];
-type Rgb = [u8; 3];
+pub type Rgb = [u8; 3];
 
 #[derive(Default, Clone, Debug)]
 pub struct DCTResult {
@@ -41,6 +41,12 @@ impl AsLinear for Rgb {
     }
 }
 
+impl AsLinear for &Rgb {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
+    }
+}
+
 impl AsLinear for [u8; 4] {
     fn as_linear(&self) -> Linear {
         [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
@@ -60,20 +66,20 @@ pub fn encode(dct: DCTResult) -> String {
 
     let mut blurhash = String::with_capacity(1 + 1 + 4 + 2 * (acs.len() - 1));
 
-    encode_to(((x_components - 1) + (y_components - 1) * 9) as u32, &mut blurhash);
+    encode_fixed_to(((x_components - 1) + (y_components - 1) * 9) as u32, 1, &mut blurhash);
 
     if acs.len() > 0 {
         let quantised_max = (ac_max * 166. - 0.5).floor().min(82.).max(0.);
-        encode_to(quantised_max as u32, &mut blurhash);
+        encode_fixed_to(quantised_max as u32, 1, &mut blurhash);
         ac_max = (quantised_max + 1.) / 166.;
     } else {
-        encode_to(0, &mut blurhash);
+        encode_fixed_to(0, 1, &mut blurhash);
     }
 
-    encode_to(encode_dc(acs[0]), &mut blurhash);
+    encode_fixed_to(encode_dc(acs[0]), 4, &mut blurhash);
 
     for ac in acs.into_iter().skip(1) {
-        encode_to(encode_ac(ac, ac_max), &mut blurhash);
+        encode_fixed_to(encode_ac(ac, ac_max), 2, &mut blurhash);
     }
 
     blurhash

@@ -46,6 +46,45 @@ pub fn encode_to(mut n: u32, str: &mut String) {
     }
 }
 
+pub fn encode_fixed(mut n: u32, iters: u8) -> String {
+    debug_assert!(iters <= 6);
+
+    let mut stack: [char; 6] = ['\0'; 6];
+    let mut i = 0;
+
+    for _ in 0..iters {
+        stack[i] = CHARACTERS[(n % 83) as usize];
+        n /= 83;
+        i += 1;
+    }
+
+    // allocate string
+    let mut str = String::with_capacity(i);
+    while i > 0 { // append to string in the reverse order
+        i -= 1;
+        str.push(stack[i]);
+    }
+    str
+}
+
+pub fn encode_fixed_to(mut n: u32, iters: u8, str: &mut String) {
+    debug_assert!(iters <= 6);
+
+    let mut stack: [char; 6] = ['\0'; 6];
+    let mut i = 0;
+
+    for _ in 0..iters {
+        stack[i] = CHARACTERS[(n % 83) as usize];
+        n /= 83;
+        i += 1;
+    }
+
+    while i > 0 { // append to string in the reverse order
+        i -= 1;
+        str.push(stack[i]);
+    }
+}
+
 const DIGITS: [u8; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, // 16
@@ -97,17 +136,23 @@ const DIGITS: [u8; 256] = [
 ];
 
 pub fn decode_ascii(s: &str) -> u32 {
+    debug_assert!(s.is_ascii());
+
     s.chars()
         .map(|c| DIGITS[c as usize] as u32)
         .fold(0, |acc, c| acc * 83 + c)
 }
 
 pub fn decode(s: &str) -> Option<u32> {
-    let mut n = 0;
+    let mut n: u32 = 0;
+
+    if s.len() > 6 { // overflow
+        return None;
+    }
 
     for c in s.chars() {
         if c.is_ascii() {
-            n = n * 83 + DIGITS[c as usize] as u32;
+            n = n.checked_mul(83u32)? + DIGITS[c as usize] as u32;
         } else {
             return None;
         }
@@ -118,91 +163,68 @@ pub fn decode(s: &str) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, decode_ascii, encode, encode_to};
+    use super::*;
 
-    #[test]
-    fn encode_8bits() {
-        assert_eq!(encode(42), "g");
+    macro_rules! gen_enc_dec_test {
+        (($name:ident, $val:expr, $base83:expr)) => {
+            #[test]
+            fn $name() {
+                let mut s = String::with_capacity(6);
+                encode_to($val, &mut s);
+                assert_eq!(s, $base83);
+                assert_eq!(encode($val), $base83);
+
+                assert_eq!(decode($base83), Some($val));
+                assert_eq!(decode_ascii($base83), $val);
+                assert_eq!(decode(&encode($val)), Some($val));
+            }
+        };
+
+        (($name:ident, $val:expr, $base83:expr); $(($name2:ident, $val2:expr, $base832:expr));+) => {
+            gen_enc_dec_test!{ ($name, $val, $base83) }
+            gen_enc_dec_test!{ $(($name2, $val2, $base832));+ }
+        };
     }
 
-    #[test]
-    fn encode_16bits() {
-        assert_eq!(encode(1234), "E=");
+    macro_rules! gen_enc_fixed_test {
+        (($name:ident, $val:expr, $base83:expr)) => {
+            #[test]
+            fn $name() {
+                let mut s = String::with_capacity(6);
+                encode_fixed_to($val, $base83.len() as u8, &mut s);
+                assert_eq!(s, $base83);
+                assert_eq!(encode_fixed($val, $base83.len() as u8), $base83);
+                assert_eq!(decode(&s), Some($val));
+                assert_eq!(decode_ascii(&s), $val);
+            }
+        };
+
+        (($name:ident, $val:expr, $base83:expr); $(($name_s:ident, $val_s:expr, $base83_s:expr));+) => {
+            gen_enc_fixed_test!{ ($name, $val, $base83) }
+            gen_enc_fixed_test!{ $(($name_s, $val_s, $base83_s));+ }
+        };
     }
 
-    #[test]
-    fn encode_24bits() {
-        assert_eq!(encode(0xcafeee), "NMAj");
+    gen_enc_dec_test! {
+        (test_enc_dec_zero, 0, "0");
+        (test_enc_dec_one, 1, "1");
+        (test_enc_dec_8bits, 42, "g");
+        (test_enc_dec_16bits, 1234, "E=");
+        (test_enc_dec_17bits, 65540, "9gr");
+        (test_enc_dec_24bits, 0xcafeee, "NMAj");
+        (test_enc_dec_32bits, 0xC0deCafe, "-FCDo");
+        (test_enc_dec_max, u32::MAX, "17fd^]")
     }
 
-    #[test]
-    fn encode_32bits() {
-        assert_eq!(encode(0xC0deCafe), "-FCDo");
-    }
-
-    #[test]
-    fn encode_max() {
-        assert_eq!(encode(u32::MAX), "17fd^]");
-    }
-
-    #[test]
-    fn encode_to_8bits() {
-        let mut s = String::with_capacity(6);
-        encode_to(42, &mut s);
-        assert_eq!(s, "g");
-    }
-
-    #[test]
-    fn encode_to_16bits() {
-        let mut s = String::with_capacity(6);
-        encode_to(1234, &mut s);
-        assert_eq!(s, "E=");
-    }
-
-    #[test]
-    fn encode_to_24bits() {
-        let mut s = String::with_capacity(6);
-        encode_to(0xcafeee, &mut s);
-        assert_eq!(s, "NMAj");
-    }
-
-    #[test]
-    fn encode_to_32bits() {
-        let mut s = String::with_capacity(6);
-        encode_to(0xC0deCafe, &mut s);
-        assert_eq!(s, "-FCDo");
-    }
-
-    #[test]
-    fn encode_to_max() {
-        let mut s = String::with_capacity(6);
-        encode_to(u32::MAX, &mut s);
-        assert_eq!(s, "17fd^]");
-    }
-
-    #[test]
-    fn decode_ascii_8bits() {
-        assert_eq!(decode_ascii("g"), 42);
-    }
-
-    #[test]
-    fn decode_ascii_16bits() {
-        assert_eq!(decode_ascii("E="), 1234);
-    }
-
-    #[test]
-    fn decode_ascii_24bits() {
-        assert_eq!(decode_ascii("NMAj"), 0xcafeee);
-    }
-
-    #[test]
-    fn decode_ascii_32bits() {
-        assert_eq!(decode_ascii("-FCDo"), 0xC0deCafe);
-    }
-
-    #[test]
-    fn decode_ascii_max() {
-        assert_eq!(decode_ascii("17fd^]"), u32::MAX);
+    gen_enc_fixed_test! {
+        (test_enc_fixed_zero, 0, "0000");
+        (test_enc_fixed_one, 1, "001");
+        (test_enc_fixed_8bits, 42, "g");
+        (test_enc_fixed_16bits, 1234, "E=");
+        (test_enc_fixed_17bits, 65540, "09gr");
+        (test_enc_fixed_24bits, 0xcafeee, "0NMAj");
+        (test_enc_fixed_32bits, 0xC0deCafe, "-FCDo");
+        (test_enc_fixed_max, u32::MAX, "17fd^]")
     }
 
     #[test]
@@ -211,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn decode_max() {
-        assert_eq!(decode("17fd^]"), Some(u32::MAX));
+    fn decode_overflow() {
+        assert_eq!(decode("18fd^]"), None);
     }
 }
