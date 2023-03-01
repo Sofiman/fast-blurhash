@@ -9,6 +9,12 @@ type Rgb = [u8; 3];
 type Linear = [f32; 3];
 type Factor = [f32; 3];
 
+pub fn into_linear(image: Vec<Rgb>) -> Vec<Linear> {
+    image.into_iter()
+        .map(|rgb| [srgb_to_linear(rgb[0]), srgb_to_linear(rgb[1]), srgb_to_linear(rgb[2])])
+        .collect()
+}
+
 fn to_linear(image: &[Rgb]) -> Vec<Linear> {
     image.iter()
         .map(|rgb| [srgb_to_linear(rgb[0]), srgb_to_linear(rgb[1]), srgb_to_linear(rgb[2])])
@@ -19,10 +25,15 @@ pub fn encode(image: &[Rgb], width: usize, height: usize, x_components: usize, y
     debug_assert!((1..=9).contains(&x_components), "The number of X components must be between 1 and 9");
     debug_assert!((1..=9).contains(&y_components), "The number of Y components must be between 1 and 9");
 
-    let (dc, mut max, acs) = {
-        let converted = to_linear(image);
-        compute_components(&converted, width, height, x_components, y_components)
-    };
+    let converted = to_linear(image); // copy
+    encode_linear(&converted, width, height, x_components, y_components)
+}
+
+pub fn encode_linear(image: &[Linear], width: usize, height: usize, x_components: usize, y_components: usize) -> String {
+    debug_assert!((1..=9).contains(&x_components), "The number of X components must be between 1 and 9");
+    debug_assert!((1..=9).contains(&y_components), "The number of Y components must be between 1 and 9");
+
+    let (dc, mut max, acs) = compute_components(image, width, height, x_components, y_components);
 
     let mut blurhash = String::with_capacity(1 + 1 + 4 + 2 * acs.len());
 
@@ -46,11 +57,9 @@ pub fn encode(image: &[Rgb], width: usize, height: usize, x_components: usize, y
 }
 
 pub fn compute_components(image: &[Linear], width: usize, height: usize, x_components: usize, y_components: usize) -> (Factor, f32, Vec<Factor>) {
-    let mut kernel = vec![0.; image.len()];
-
     // Calculate DC comoponent
-    let norm = 1. / kernel.len() as f32; // Normalisation for DC is 1
-    let dc = multiply_basis(0, 0, image, &mut kernel, width, height, norm);
+    let norm = 1. / image.len() as f32; // Normalisation for DC is 1
+    let dc = multiply_basis(0, 0, image, width, height, norm);
 
     let ac_count = x_components * y_components - 1;
     let mut acs: Vec<Factor> = Vec::with_capacity(ac_count);
@@ -59,36 +68,32 @@ pub fn compute_components(image: &[Linear], width: usize, height: usize, x_compo
         return (dc, 1., acs);
     }
 
+    let s = std::time::Instant::now();
     // Calculate AC components
-    let norm = 2. / kernel.len() as f32; // Normalisation for ACs is 2
+    let norm = 2. / image.len() as f32; // Normalisation for ACs is 2
     let mut ac_max = 0f32;
     for i in 1..=ac_count {
         let f = multiply_basis(i % x_components, i / x_components,
-            image, &mut kernel, width, height, norm);
+            image, width, height, norm);
         ac_max = ac_max.max(f[0].abs()).max(f[1].abs()).max(f[2].abs());
         acs.push(f);
     }
+    println!("acs took {:?}", s.elapsed());
 
     (dc, ac_max, acs)
 }
 
-fn multiply_basis(comp_x: usize, comp_y: usize, image: &[Linear], kernel: &mut [f32], width: usize, height: usize, norm: f32) -> Factor {
+fn multiply_basis(comp_x: usize, comp_y: usize, image: &[Linear], width: usize, height: usize, norm: f32) -> Factor {
     let comp_x = comp_x as f32;
     let comp_y = comp_y as f32;
 
+    let mut f: Factor = [0.; 3];
     for y in 0..height {
         let base_y = (PI * comp_y * y as f32 / height as f32).cos();
         for x in 0..width {
-            let base_x = (PI * comp_x * x as f32 / width as f32).cos();
-            kernel[y * width + x] = base_y * base_x;
-        }
-    }
-
-    let mut f: Factor = [0.; 3];
-    for y in 0..height {
-        for x in 0..width {
             let col = image[y * width + x];
-            let basis = kernel[y * width + x];
+            let base_x = (PI * comp_x * x as f32 / width as f32).cos();
+            let basis = base_y * base_x;
             f[0] += basis * col[0];
             f[1] += basis * col[1];
             f[2] += basis * col[2];
@@ -117,15 +122,13 @@ mod tests {
 
     #[test]
     fn test_multiply_basis_ac() {
-        let mut kernel = vec![0.; TEST_IMAGE.len()];
         let norm = 1. / TEST_IMAGE.len() as f32;
         let average_color = [1./2., 1./2., 1./2.]; // 8/16 of the colors are black
-        assert_eq!(multiply_basis(0, 0, &TEST_IMAGE, &mut kernel, WIDTH, HEIGHT, norm), average_color);
+        assert_eq!(multiply_basis(0, 0, &TEST_IMAGE, WIDTH, HEIGHT, norm), average_color);
     }
 
     #[test]
     fn test_multiply_basis_dc02_20() {
-        let mut kernel = vec![0.; TEST_IMAGE.len()];
         let norm = 2. / TEST_IMAGE.len() as f32;
         // the (0, 2) kernel looks like this:
         // [   1,   1,   1,   1,
@@ -138,7 +141,7 @@ mod tests {
         //   -1,  -1,  -1,  -1,
         //    .,   .,   .,   .  ] => adding up to -2
         let v = -2. * norm;
-        assert_eq!(multiply_basis(0, 2, &TEST_IMAGE, &mut kernel, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(multiply_basis(0, 2, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
 
         // the (0, 2) kernel looks like this:
         // [  1,  ~0, -1,  ~0,
@@ -150,12 +153,11 @@ mod tests {
         //    .,   .,  -1,  .,
         //    1,   .,  -1,  .,
         //    .,   .,  -1,  .  ] => adding up to -2
-        assert_eq!(multiply_basis(2, 0, &TEST_IMAGE, &mut kernel, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(multiply_basis(2, 0, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
     }
 
     #[test]
     fn test_multiply_basis_dc33() {
-        let mut kernel = vec![0.; TEST_IMAGE.len()];
         let norm = 2. / TEST_IMAGE.len() as f32;
         // the (3, 3) kernel looks like this:
         // [     1,  -0.7,  ~0,   0.7,
@@ -168,12 +170,11 @@ mod tests {
         //    .,   .,   .,   .,
         //    .,   .,   .,   .  ] => adding up to 1
         let v = 1. * norm;
-        assert_eq!(multiply_basis(3, 3, &TEST_IMAGE, &mut kernel, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(multiply_basis(3, 3, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
     }
 
     #[test]
     fn test_multiply_basis_dc_42_24() {
-        let mut kernel = vec![0.; TEST_IMAGE.len()];
         let norm = 2. / TEST_IMAGE.len() as f32;
         // the (4, 2) kernel looks like this:
         // [  1,  -1,   1,  -1,
@@ -186,7 +187,7 @@ mod tests {
         //    1,  -1,   1,  -1,
         //    .,   .,   .,   .  ] => adding up to 2
         let v = 2. * norm;
-        assert_eq!(multiply_basis(4, 2, &TEST_IMAGE, &mut kernel, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(multiply_basis(4, 2, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
 
         // the (2, 4) kernel looks like this:
         // [  1,  ~0,  -1,  ~0,
@@ -198,7 +199,7 @@ mod tests {
         //    .,   .,  -1,   .,
         //    1,   .,   1,   .,
         //    .,   .,  -1,   .  ] => adding up to 2
-        assert_eq!(multiply_basis(2, 4, &TEST_IMAGE, &mut kernel, WIDTH, HEIGHT, norm), [v, v, v]);
+        assert_eq!(multiply_basis(2, 4, &TEST_IMAGE, WIDTH, HEIGHT, norm), [v, v, v]);
     }
 
     const TEST_IMAGE_RGB: [Rgb; 16] = [
@@ -214,18 +215,21 @@ mod tests {
         assert_eq!(encode(&TEST_IMAGE_RGB, WIDTH, HEIGHT, 3, 3), "KzKUZY=|HZ=|$5e9HZe9IS");
     }
 
-    /*
     use ril::prelude::Image;
+    use super::into_linear;
 
     #[test]
     fn test_encode_image() {
         let img = Image::<ril::pixel::Rgb>::open("test.webp").unwrap();
         let w = img.width() as usize;
         let h = img.height() as usize;
-        let pixels: Vec<Rgb> = img.pixels().flatten().map(|p| [p.r, p.g, p.b]).collect();
         let start = std::time::Instant::now();
-        let s = encode(&pixels, w, h, 4, 7);
-        println!("{:?}", start.elapsed());
+        let pixels: Vec<Linear> = img.pixels().flatten()
+            .map(|p| [srgb_to_linear(p.r), srgb_to_linear(p.g), srgb_to_linear(p.b)]).collect();
+        println!("convert took {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let s = encode_linear(&pixels, w, h, 4, 7);
+        println!("encode_linear took {:?}", start.elapsed());
         assert_eq!(s, "vbHLxdSgNHxD~pX9R+i_NfNIt7V@NL%Mt7Rj-;t7e:WCj[WXV[ofM{WXbHof");
-    }*/
+    }
 }
