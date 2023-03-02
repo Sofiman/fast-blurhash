@@ -146,12 +146,12 @@ impl DCTResult {
     }
 
     /// Retrive the number of X components
-    pub fn x_components(&self) {
+    pub fn x_components(&self) -> usize {
         self.x_components
     }
 
     /// Retrive the number of Y components
-    pub fn y_components(&self) {
+    pub fn y_components(&self) -> usize {
         self.y_components
     }
 
