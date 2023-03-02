@@ -1,3 +1,6 @@
+//! Color conversion and BlurHash specific encoding utilities
+
+/// Convert a single channel in linear space to sRGB space
 pub fn linear_to_srgb(linear: f32) -> u8 {
     let linear = linear.max(0.).min(1.);
     if linear <= 0.0031308 {
@@ -7,6 +10,7 @@ pub fn linear_to_srgb(linear: f32) -> u8 {
     }
 }
 
+/// Convert a single channel in sRGV space to linear space
 pub fn srgb_to_linear(pixel: u8) -> f32 {
     let normalized = pixel as f32 / 255.;
     if normalized <= 0.04045 {
@@ -16,6 +20,7 @@ pub fn srgb_to_linear(pixel: u8) -> f32 {
     }
 }
 
+/// Encodes a DC (avergae color) to an u32 to be encoded into a 4-digit base83
 pub fn encode_dc(dc: [f32; 3]) -> u32 {
     let r = linear_to_srgb(dc[0]) as u32;
     let g = linear_to_srgb(dc[1]) as u32;
@@ -23,10 +28,13 @@ pub fn encode_dc(dc: [f32; 3]) -> u32 {
     (r << 16) | (g << 8) | b
 }
 
+/// Calculates the 'absolute power' of a number.
+/// If the number x is negative, it calculates `-(|x|)^exp`, `x^exp` otherwise.
 pub fn sign_pow(x: f32, exp: f32) -> f32 {
     x.abs().powf(exp).copysign(x)
 }
 
+/// Encodes a AC to an u32 to be encoded into a 2-digit base83
 pub fn encode_ac(ac: [f32; 3], ac_max: f32) -> u32 {
     let quant_r = (sign_pow(ac[0] / ac_max, 0.5) * 9. + 9.5).floor().min(18.).max(0.) as u32;
     let quant_g = (sign_pow(ac[1] / ac_max, 0.5) * 9. + 9.5).floor().min(18.).max(0.) as u32;

@@ -7,7 +7,7 @@ More documentation on the way...
 
 ### TODO
 
+- [x] Add documentation
 - [ ] Add decode
-- [ ] Add documentation
 - [ ] Publish to crate.io
 

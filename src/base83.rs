@@ -1,7 +1,11 @@
+//! base83 encode and decode utilities
+
 const CHARACTERS: [u8; 83] = [
     b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X', b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's', b't', b'u', b'v', b'w', b'x', b'y', b'z', b'#', b'$', b'%', b'*', b'+', b',', b'-', b'.', b':', b';', b'=', b'?', b'@', b'[', b']', b'^', b'_', b'{', b'|', b'}', b'~', 
 ];
 
+/// Encodes an u32 to a base83 string. This function allocates a long-enough
+/// string to contain the 1 to 6 base83 digit.
 pub fn encode(mut n: u32) -> String {
     if n == 0 {
         return (CHARACTERS[0] as char).to_string();
@@ -25,6 +29,8 @@ pub fn encode(mut n: u32) -> String {
     str
 }
 
+/// Encodes an u32 to a base83 string. This function does not allocate a string.
+/// This function may append up to 6 new characters to the string.
 pub fn encode_to(mut n: u32, str: &mut String) {
     if n == 0 {
         str.push(CHARACTERS[0] as char);
@@ -46,6 +52,8 @@ pub fn encode_to(mut n: u32, str: &mut String) {
     }
 }
 
+/// Encodes an u32 to a fixed size base83 string.
+/// This function allocates a string of `iters` characters.
 pub fn encode_fixed(mut n: u32, iters: u8) -> String {
     assert!(iters <= 6);
     let mut iters = iters as usize;
@@ -58,7 +66,7 @@ pub fn encode_fixed(mut n: u32, iters: u8) -> String {
     }
 
     // allocate string
-    let mut str = String::with_capacity(iters as usize);
+    let mut str = String::with_capacity(iters);
     while iters > 0 { // append to string in the reverse order
         iters -= 1;
         str.push(stack[iters] as char);
@@ -66,6 +74,8 @@ pub fn encode_fixed(mut n: u32, iters: u8) -> String {
     str
 }
 
+/// Encodes an u32 to a fixed size base83 string. This function does not allocate
+/// a string. This function appends `iters` new characters to the string.
 pub fn encode_fixed_to(mut n: u32, iters: u8, str: &mut String) {
     assert!(iters <= 6);
     let mut iters = iters as usize;
@@ -133,6 +143,9 @@ const DIGITS: [u8; 256] = [
 
 ];
 
+/// Decodes an base83-encoded ascii string to an u32. Note that this function
+/// does not perform any runtime check on the input string, any ascii character
+/// that is not part of the base83 character set.
 pub fn decode_ascii(s: &str) -> u32 {
     debug_assert!(s.is_ascii());
 
@@ -141,6 +154,10 @@ pub fn decode_ascii(s: &str) -> u32 {
         .fold(0, |acc, c| acc * 83 + c)
 }
 
+/// Decodes a base83-encoded string to an u32. This function returns None if the
+/// string does not contain a valid u32 (in case of **non-ascii** characters or u32
+/// overflow). Note that this function will ignore any ascii character that is not
+/// part of the base83 character set.
 pub fn decode(s: &str) -> Option<u32> {
     let mut n: u32 = 0;
 
