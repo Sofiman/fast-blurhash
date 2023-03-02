@@ -91,7 +91,8 @@ pub type Factor = [f32; 3];
 pub type Rgb = [u8; 3];
 
 /// DCTResult is the result of a Discrete Cosine Transform performed on a image
-/// with a specific number of X and Y components.
+/// with a specific number of X and Y components. It stores the frequency and
+/// location of colors within the image.
 #[derive(Default, Clone, Debug)]
 pub struct DCTResult {
     /// The absolute maximum value of each channel in the alternative currents
@@ -142,6 +143,21 @@ impl DCTResult {
     /// the average color of the image.
     pub fn dc(&self) -> &Factor {
         &self.currents[0]
+    }
+
+    /// Retrive the number of X components
+    pub fn x_components(&self) {
+        self.x_components
+    }
+
+    /// Retrive the number of Y components
+    pub fn y_components(&self) {
+        self.y_components
+    }
+
+    // Retrive the dimension (x_components, y_components) of the computed DCT
+    pub fn dim(&self) -> (usize, usize) {
+        (self.x_components, self.y_components)
     }
 }
 
