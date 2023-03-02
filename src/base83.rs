@@ -1,13 +1,13 @@
-const CHARACTERS: [char; 83] = [
-    '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','#','$','%','*','+',',','-','.',':',';','=','?','@','[',']','^','_','{','|','}','~',
+const CHARACTERS: [u8; 83] = [
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X', b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's', b't', b'u', b'v', b'w', b'x', b'y', b'z', b'#', b'$', b'%', b'*', b'+', b',', b'-', b'.', b':', b';', b'=', b'?', b'@', b'[', b']', b'^', b'_', b'{', b'|', b'}', b'~', 
 ];
 
 pub fn encode(mut n: u32) -> String {
     if n == 0 {
-        return CHARACTERS[0].to_string();
+        return (CHARACTERS[0] as char).to_string();
     }
 
-    let mut stack: [char; 6] = ['\0'; 6];
+    let mut stack: [u8; 6] = [0; 6];
     let mut i = 0;
 
     while n > 0 {
@@ -20,18 +20,18 @@ pub fn encode(mut n: u32) -> String {
     let mut str = String::with_capacity(i);
     while i > 0 { // append to string in the reverse order
         i -= 1;
-        str.push(stack[i]);
+        str.push(stack[i] as char);
     }
     str
 }
 
 pub fn encode_to(mut n: u32, str: &mut String) {
     if n == 0 {
-        str.push(CHARACTERS[0]);
+        str.push(CHARACTERS[0] as char);
         return;
     }
 
-    let mut stack: [char; 6] = ['\0'; 6];
+    let mut stack: [u8; 6] = [0; 6];
     let mut i = 0;
 
     while n > 0 {
@@ -42,46 +42,44 @@ pub fn encode_to(mut n: u32, str: &mut String) {
 
     while i > 0 { // append to string in the reverse order
         i -= 1;
-        str.push(stack[i]);
+        str.push(stack[i] as char);
     }
 }
 
 pub fn encode_fixed(mut n: u32, iters: u8) -> String {
-    debug_assert!(iters <= 6);
+    assert!(iters <= 6);
+    let mut iters = iters as usize;
 
-    let mut stack: [char; 6] = ['\0'; 6];
-    let mut i = 0;
+    let mut stack: [u8; 6] = [0; 6];
 
-    for _ in 0..iters {
+    for i in 0..iters {
         stack[i] = CHARACTERS[(n % 83) as usize];
         n /= 83;
-        i += 1;
     }
 
     // allocate string
-    let mut str = String::with_capacity(i);
-    while i > 0 { // append to string in the reverse order
-        i -= 1;
-        str.push(stack[i]);
+    let mut str = String::with_capacity(iters as usize);
+    while iters > 0 { // append to string in the reverse order
+        iters -= 1;
+        str.push(stack[iters] as char);
     }
     str
 }
 
 pub fn encode_fixed_to(mut n: u32, iters: u8, str: &mut String) {
-    debug_assert!(iters <= 6);
+    assert!(iters <= 6);
+    let mut iters = iters as usize;
 
-    let mut stack: [char; 6] = ['\0'; 6];
-    let mut i = 0;
+    let mut stack: [u8; 6] = [0; 6];
 
-    for _ in 0..iters {
+    for i in 0..iters  {
         stack[i] = CHARACTERS[(n % 83) as usize];
         n /= 83;
-        i += 1;
     }
 
-    while i > 0 { // append to string in the reverse order
-        i -= 1;
-        str.push(stack[i]);
+    while iters > 0 { // append to string in the reverse order
+        iters -= 1;
+        str.push(stack[iters] as char);
     }
 }
 
