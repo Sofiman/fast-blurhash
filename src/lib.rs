@@ -11,7 +11,7 @@
 //!
 //! let (width, height) = todo!("Get image width and height");
 //! let image: Vec<u32> = todo!("Load the image");
-//! let blurhash = compute_dct(&image, width, height, 3, 4).to_blurhash();
+//! let blurhash = compute_dct(&image, width, height, 3, 4).into_blurhash();
 //! ```
 //!
 //! ## Custom color types
@@ -41,7 +41,7 @@
 //! // And then compute the blurhash!
 //! let (width, height) = todo!("Get image width and height");
 //! let image: Vec<MyColor> = todo!("Load the image");
-//! let blurhash = compute_dct(&image, width, height, 3, 4).to_blurhash();
+//! let blurhash = compute_dct(&image, width, height, 3, 4).into_blurhash();
 //! ```
 //!
 //! Several conversion function are available such as sRGB to Linear, check out the
@@ -73,7 +73,7 @@
 //! // And then compute the blurhash!
 //! let (width, height) = todo!("Get image width and height");
 //! let image: Vec<Vec<Color>> = todo!("Load the image");
-//! let blurhash = compute_dct_iter(image.iter().flatten(), width, height, 3, 4).to_blurhash();
+//! let blurhash = compute_dct_iter(image.iter().flatten(), width, height, 3, 4).into_blurhash();
 //! ```
 
 pub mod base83;
@@ -132,8 +132,8 @@ impl DCTResult {
 
     /// Convert the computed color frequencies into a base83 string using
     /// the wolt/blurhash algorithm.
-    pub fn to_blurhash(self) -> String {
-        encode(self)
+    pub fn into_blurhash(self) -> String {
+        encode(&self)
     }
 
     /// Generate an image from this DCT Result to recreate (sort of) the original
@@ -309,10 +309,10 @@ impl AsLinear for u32 {
 /// Compute the blurhash string from the DCT result using the wolt/blurhash algorithm.
 /// This function allocates a string of length (1 + 1 + 4 + 2 * components) where
 /// components is the total number of components (components_x * components_y).
-pub fn encode(dct: DCTResult) -> String {
+pub fn encode(dct: &DCTResult) -> String {
     let DCTResult { mut ac_max, currents, x_components, y_components } = dct;
-    assert!((1..=9).contains(&x_components), "The number of X components must be between 1 and 9");
-    assert!((1..=9).contains(&y_components), "The number of Y components must be between 1 and 9");
+    assert!((1..=9).contains(x_components), "The number of X components must be between 1 and 9");
+    assert!((1..=9).contains(y_components), "The number of Y components must be between 1 and 9");
 
     let mut blurhash = String::with_capacity(1 + 1 + 4 + 2 * (currents.len() - 1));
 
@@ -328,7 +328,7 @@ pub fn encode(dct: DCTResult) -> String {
 
     encode_fixed_to(encode_dc(currents[0]), 4, &mut blurhash);
 
-    for ac in currents.into_iter().skip(1) {
+    for &ac in currents.iter().skip(1) {
         encode_fixed_to(encode_ac(ac, ac_max), 2, &mut blurhash);
     }
 
@@ -589,14 +589,14 @@ mod tests {
             [255, 255, 255], [255, 255, 255], [  0, 255,   0], [255, 255, 255],
             [  0,   0,   0], [  0,   0,   0], [255, 255, 255], [  0,   0,   0],
         ];
-        assert_eq!(compute_dct(&image, 4, 4, 3, 3).to_blurhash(), "KzKUZY=|HZ=|$5e9HZe9IS");
+        assert_eq!(compute_dct(&image, 4, 4, 3, 3).into_blurhash(), "KzKUZY=|HZ=|$5e9HZe9IS");
     }
 
     #[test]
     fn test_encode_decode_no_comps() {
         let image: [Rgb; 16] = [[255, 127, 55]; 16];
         let dct = compute_dct(&image, 4, 4, 1, 1);
-        let blurhash = dct.clone().to_blurhash();
+        let blurhash = encode(&dct);
         assert_eq!(blurhash, "0~TNl]");
 
         let inv = decode(&blurhash, 1.).unwrap();
@@ -612,7 +612,7 @@ mod tests {
     fn test_encode_decode_white() {
         let image: [Rgb; 16] = [[255, 255, 255]; 16];
         let dct = compute_dct(&image, 4, 4, 4, 4);
-        let blurhash = dct.clone().to_blurhash();
+        let blurhash = encode(&dct);
         assert_eq!(blurhash, "U~TSUA~qfQ~q~q%MfQ%MfQfQfQfQ~q%MfQ%M");
         let inv = decode(&blurhash, 1.).unwrap();
         assert_eq!(inv.x_components, dct.x_components);
@@ -632,7 +632,7 @@ mod tests {
     fn test_encode_decode_black() {
         let image: [Rgb; 16] = [[0, 0, 0]; 16];
         let dct = compute_dct(&image, 4, 4, 4, 4);
-        let blurhash = dct.clone().to_blurhash();
+        let blurhash = encode(&dct);
         assert_eq!(blurhash, "U00000fQfQfQfQfQfQfQfQfQfQfQfQfQfQfQ");
 
         let inv = decode(&blurhash, 1.).unwrap();
@@ -664,7 +664,7 @@ mod tests {
         let w = img.width() as usize;
         let h = img.height() as usize;
         let s = compute_dct_iter(img.pixels().flatten(), w, h, 4, 7);
-        assert_eq!(s.to_blurhash(), "vbHCG?SgNGxD~pX9R+i_NfNIt7V@NL%Mt7Rj-;t7e:WCfPWXV[ofM{WXbHof");
+        assert_eq!(s.into_blurhash(), "vbHCG?SgNGxD~pX9R+i_NfNIt7V@NL%Mt7Rj-;t7e:WCfPWXV[ofM{WXbHof");
     }
 
     #[test]
