@@ -8,6 +8,6 @@ More documentation on the way...
 ### TODO
 
 - [x] Add documentation
-- [ ] Add decode
+- [x] Add decode
 - [ ] Publish to crate.io
 
