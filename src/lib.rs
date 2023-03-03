@@ -90,6 +90,19 @@ pub type Factor = [f32; 3];
 /// RGB 8-bit per channel color
 pub type Rgb = [u8; 3];
 
+#[derive(Debug, Clone, Copy)]
+pub enum BlurhashError {
+    InvalidLength,
+    BadFormat,
+    UnsupportedMode
+}
+
+impl From<base83::Base83ConversionError> for BlurhashError {
+    fn from(_: base83::Base83ConversionError) -> Self {
+        Self::BadFormat
+    }
+}
+
 /// DCTResult is the result of a Discrete Cosine Transform performed on a image
 /// with a specific number of X and Y components. It stores the frequency and
 /// location of colors within the image.
@@ -121,6 +134,105 @@ impl DCTResult {
     /// the wolt/blurhash algorithm.
     pub fn to_blurhash(self) -> String {
         encode(self)
+    }
+
+    pub fn inv_multiply_basis(x_comps: usize, y_comps: usize, x: usize, y: usize, width: usize, height: usize, col: &mut [f32; 3], currents: &[Factor]) {
+        for comp_y in 0..y_comps {
+            let base_y = (PI * comp_y as f32 * y as f32 / height as f32).cos();
+
+            for comp_x in 0..x_comps {
+                let f = currents[comp_y * x_comps + comp_x];
+
+                let base_x = (PI * comp_x as f32 * x as f32 / width as f32).cos();
+                let basis = base_y * base_x;
+
+                col[0] += basis * f[0];
+                col[1] += basis * f[1];
+                col[2] += basis * f[2];
+            }
+        }
+    }
+
+    pub fn to_linear(&self, width: usize, height: usize) -> Vec<Linear> {
+        let mut pixels = Vec::with_capacity(width * height);
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut col = [0., 0., 0.];
+
+                Self::inv_multiply_basis(self.x_components, self.y_components,
+                    x, y, width, height,  &mut col, &self.currents);
+
+                pixels.push(col);
+            }
+        }
+
+        pixels
+    }
+
+    pub fn to_rgb8(&self, width: usize, height: usize) -> Vec<[u8; 3]> {
+        let mut pixels = Vec::with_capacity(width * height);
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut col = [0., 0., 0.];
+
+                Self::inv_multiply_basis(self.x_components, self.y_components,
+                    x, y, width, height,  &mut col, &self.currents);
+
+                pixels.push([
+                    linear_to_srgb(col[0]),
+                    linear_to_srgb(col[1]),
+                    linear_to_srgb(col[2]),
+                ]);
+            }
+        }
+
+        pixels
+    }
+
+    pub fn to_rgba8(&self, width: usize, height: usize) -> Vec<[u8; 4]> {
+        let mut pixels = Vec::with_capacity(width * height);
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut col = [0., 0., 0.];
+
+                Self::inv_multiply_basis(self.x_components, self.y_components,
+                    x, y, width, height,  &mut col, &self.currents);
+
+                pixels.push([
+                    linear_to_srgb(col[0]),
+                    linear_to_srgb(col[1]),
+                    linear_to_srgb(col[2]),
+                    255
+                ]);
+            }
+        }
+
+        pixels
+    }
+
+    pub fn to_rgba(&self, width: usize, height: usize) -> Vec<u32> {
+        let mut pixels = Vec::with_capacity(width * height);
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut col = [0., 0., 0.];
+
+                Self::inv_multiply_basis(self.x_components, self.y_components,
+                    x, y, width, height,  &mut col, &self.currents);
+
+                pixels.push(
+                    ((linear_to_srgb(col[2]) as u32) <<  0) |
+                    ((linear_to_srgb(col[1]) as u32) <<  8) |
+                    ((linear_to_srgb(col[0]) as u32) << 16) |
+                    ((255                   as u32) << 24)
+                );
+            }
+        }
+
+        pixels
     }
 
     /// Retrieve the currents of the DCT. The returned array is
@@ -226,6 +338,39 @@ pub fn encode(dct: DCTResult) -> String {
     }
 
     blurhash
+}
+
+pub fn decode(blurhash: &str, punch: f32) -> Result<DCTResult, BlurhashError> {
+    assert!(punch != 0.);
+
+    if blurhash.is_empty() {
+        return Err(BlurhashError::InvalidLength)
+    }
+    let total = base83::decode(&blurhash[..1])? as usize;
+    let (x_components, y_components) = ((total % 9) + 1, (total / 9) + 1);
+
+    if x_components > 9 || y_components > 9 {
+        return Err(BlurhashError::UnsupportedMode)
+    }
+
+    let current_count = x_components * y_components;
+    if blurhash.len() != 1 + 1 + 4 + 2 * (current_count - 1) {
+        return Err(BlurhashError::InvalidLength)
+    }
+
+    let ac_max = base83::decode(&blurhash[1..2])? + 1;
+    let ac_max = ((ac_max as f32) / 166.) * punch;
+
+    let mut currents = Vec::with_capacity(current_count);
+    currents.push(decode_dc(base83::decode(&blurhash[2..6])?));
+
+    for i in 1..current_count {
+        let idx = (i - 1) * 2 + 6;
+        let ac = base83::decode(&blurhash[idx..(idx + 2)])?;
+        currents.push(decode_ac(ac, ac_max));
+    }
+
+    Ok(DCTResult { ac_max, currents, x_components, y_components })
 }
 
 /// Compute the Discrete Cosine Transform on an image in linear space. The iterator
@@ -437,18 +582,50 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_white() {
-        let image: [Rgb; 16] = [[255, 255, 255]; 16];
-        assert_eq!(compute_dct(&image, 4, 4, 4, 4).to_blurhash(), "U~TSUA~qfQ~q~q%MfQ%MfQfQfQfQ~q%MfQ%M");
+    fn test_encode_decode_no_comps() {
+        let image: [Rgb; 16] = [[255, 127, 55]; 16];
+        let dct = compute_dct(&image, 4, 4, 1, 1);
+        let blurhash = dct.clone().to_blurhash();
+        assert_eq!(blurhash, "0~TSTh");
+
+        let inv = decode(&blurhash, 1.).unwrap();
+        assert_eq!(inv.x_components, dct.x_components);
+        assert_eq!(inv.y_components, dct.y_components);
+        assert_eq!(inv.dc(), dct.dc());
     }
 
     #[test]
-    fn test_encode_black() {
-        let image: [Rgb; 16] = [[0, 0, 0]; 16];
-        assert_eq!(compute_dct(&image, 4, 4, 4, 4).to_blurhash(), "U00000fQfQfQfQfQfQfQfQfQfQfQfQfQfQfQ");
+    fn test_encode_decode_white() {
+        let image: [Rgb; 16] = [[255, 255, 255]; 16];
+        let dct = compute_dct(&image, 4, 4, 4, 4);
+        let blurhash = dct.clone().to_blurhash();
+        assert_eq!(blurhash, "U~TSUA~qfQ~q~q%MfQ%MfQfQfQfQ~q%MfQ%M");
+        let inv = decode(&blurhash, 1.).unwrap();
+        assert_eq!(inv.x_components, dct.x_components);
+        assert_eq!(inv.y_components, dct.y_components);
+
+        for (i, (a, b)) in inv.currents.iter().flatten().zip(dct.currents.iter().flatten()).enumerate() {
+            assert!((a - b).abs() < 0.05, "{a}, {b} at index {i}");
+        }
     }
 
-    /*
+    #[test]
+    fn test_encode_decode_black() {
+        let image: [Rgb; 16] = [[0, 0, 0]; 16];
+        let dct = compute_dct(&image, 4, 4, 4, 4);
+        let blurhash = dct.clone().to_blurhash();
+        assert_eq!(blurhash, "U00000fQfQfQfQfQfQfQfQfQfQfQfQfQfQfQ");
+
+        let inv = decode(&blurhash, 1.).unwrap();
+        assert_eq!(inv.x_components, dct.x_components);
+        assert_eq!(inv.y_components, dct.y_components);
+        assert_eq!(inv.dc(), dct.dc());
+
+        for (i, (a, b)) in inv.currents.iter().flatten().zip(dct.currents.iter().flatten()).enumerate() {
+            assert!((a - b).abs() < 0.05, "{a}, {b} at index {i}");
+        }
+    }
+
     use ril::prelude::Image;
 
     impl AsLinear for &ril::pixel::Rgb {
@@ -464,5 +641,17 @@ mod tests {
         let h = img.height() as usize;
         let s = compute_dct_iter(img.pixels().flatten(), w, h, 4, 7);
         assert_eq!(s.to_blurhash(), "vbHLxdSgNHxD~pX9R+i_NfNIt7V@NL%Mt7Rj-;t7e:WCj[WXV[ofM{WXbHof");
-    }*/
+    }
+
+    #[test]
+    fn test_decode_image() {
+        let s = decode("vbHLxdSgNHxD~pX9R+i_NfNIt7V@NL%Mt7Rj-;t7e:WCj[WXV[ofM{WXbHof", 1.)
+            .unwrap().to_rgb8(32, 48);
+
+        let img = Image::<ril::pixel::Rgb>::from_fn(32, 48, |x, y| {
+            let [r, g, b] = s[y as usize * 32 + x as usize];
+            ril::pixel::Rgb::new(r, g, b)
+        });
+        img.save_inferred("out.webp").unwrap();
+    }
 }

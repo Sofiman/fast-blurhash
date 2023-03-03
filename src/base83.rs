@@ -1,5 +1,11 @@
 //! base83 encode and decode utilities
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Base83ConversionError {
+    InvalidChar,
+    Overflow
+}
+
 const CHARACTERS: [u8; 83] = [
     b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X', b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's', b't', b'u', b'v', b'w', b'x', b'y', b'z', b'#', b'$', b'%', b'*', b'+', b',', b'-', b'.', b':', b';', b'=', b'?', b'@', b'[', b']', b'^', b'_', b'{', b'|', b'}', b'~', 
 ];
@@ -158,7 +164,7 @@ pub fn decode_ascii(s: &str) -> u32 {
 /// string does not contain a valid u32 (in case of **non-ascii** characters or u32
 /// overflow). Note that this function will ignore any ascii character that is not
 /// part of the base83 character set.
-pub fn decode(s: &str) -> Option<u32> {
+pub fn decode(s: &str) -> Result<u32, Base83ConversionError> {
     let mut n: u32 = 0;
 
     let mut chars = s.chars();
@@ -167,18 +173,20 @@ pub fn decode(s: &str) -> Option<u32> {
             Some(c) if c.is_ascii() => {
                 n = n * 83 + DIGITS[c as usize] as u32;
             },
-            Some(_) => return None, // invalid char
-            None => return Some(n) // end of string
+            Some(_) => return Err(Base83ConversionError::InvalidChar),
+            None => return Ok(n) // end of string
         }
     }
 
     match chars.next() {
         Some(c) if c.is_ascii() => {
-            // overflow check
-            n.checked_mul(83u32)?.checked_add(DIGITS[c as usize] as u32)
+            n.checked_mul(83u32) // overflow check
+                .ok_or(Base83ConversionError::Overflow)?
+                .checked_add(DIGITS[c as usize] as u32)
+                .ok_or(Base83ConversionError::Overflow)
         },
-        Some(_) => None, // invalid char
-        None => Some(n) // end of string
+        Some(_) => Err(Base83ConversionError::InvalidChar), // invalid char
+        None => Ok(n) // end of string
     }
 }
 
@@ -195,9 +203,9 @@ mod tests {
                 assert_eq!(s, $base83);
                 assert_eq!(encode($val), $base83);
 
-                assert_eq!(decode($base83), Some($val));
+                assert_eq!(decode($base83), Ok($val));
                 assert_eq!(decode_ascii($base83), $val);
-                assert_eq!(decode(&encode($val)), Some($val));
+                assert_eq!(decode(&encode($val)), Ok($val));
             }
         };
 
@@ -215,7 +223,7 @@ mod tests {
                 encode_fixed_to($val, $base83.len() as u8, &mut s);
                 assert_eq!(s, $base83);
                 assert_eq!(encode_fixed($val, $base83.len() as u8), $base83);
-                assert_eq!(decode(&s), Some($val));
+                assert_eq!(decode(&s), Ok($val));
                 assert_eq!(decode_ascii(&s), $val);
             }
         };
@@ -250,11 +258,12 @@ mod tests {
 
     #[test]
     fn decode_invalid() {
-        assert_eq!(decode("BAD°"), None);
+        assert_eq!(decode("BAD°"), Err(Base83ConversionError::InvalidChar));
     }
 
     #[test]
     fn decode_overflow() {
-        assert_eq!(decode("18fd^]"), None);
+        assert_eq!(decode("18fd^]"), Err(Base83ConversionError::Overflow));
+        assert_eq!(decode("17fd^^"), Err(Base83ConversionError::Overflow));
     }
 }
