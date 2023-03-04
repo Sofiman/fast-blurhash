@@ -1,3 +1,5 @@
+![Crates.io](https://img.shields.io/crates/v/fast-blurhash)
+
 # Fast(er) BlurHash
 
 A faster implementation of the BlurHash algorithm used to generate better
@@ -64,7 +66,7 @@ More documentation is available in rust docs.
 
 - [x] Add documentation
 - [x] Add decode
-- [ ] Publish to crate.io
+- [x] Publish to crate.io
 
 ## Contribution & Feedback
 
