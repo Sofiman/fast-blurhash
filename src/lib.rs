@@ -6,12 +6,21 @@
 //!
 //! #### Example
 //!
+//! Generating a blurhash from an image:
 //! ```no_run
 //! use fast_blurhash::compute_dct;
 //!
 //! let (width, height) = todo!("Get image width and height");
 //! let image: Vec<u32> = todo!("Load the image");
 //! let blurhash = compute_dct(&image, width, height, 3, 4).into_blurhash();
+//! ```
+//!
+//! Generating an image from a blurhash:
+//! ```
+//! use fast_blurhash::decode;
+//!
+//! let blurhash = "LlMF%n00%#MwS|WCWEM{R*bbWBbH";
+//! let image: Vec<u32> = decode(&blurhash, 1.).unwrap().to_rgba(32, 32);
 //! ```
 //!
 //! ## Custom color types
@@ -48,6 +57,24 @@
 //! [`convert`] module.
 //!
 //! [`convert`]: convert/index.html
+//!
+//! You can also generate an image using your custom type:
+//! ```
+//! use fast_blurhash::{decode, convert::linear_to_srgb};
+//!
+//! struct MyColor {
+//!     r: u8,
+//!     g: u8,
+//!     b: u8
+//! }
+//!
+//! let blurhash = "LlMF%n00%#MwS|WCWEM{R*bbWBbH";
+//! let image: Vec<MyColor> = decode(&blurhash, 1.).unwrap().to_image(32, 32, |l| MyColor {
+//!     r: linear_to_srgb(l[0]),
+//!     g: linear_to_srgb(l[1]),
+//!     b: linear_to_srgb(l[2])
+//! });
+//! ```
 //!
 //! ## Using iterators
 //!
@@ -90,16 +117,34 @@ pub type Factor = [f32; 3];
 /// RGB 8-bit per channel color
 pub type Rgb = [u8; 3];
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlurhashError {
+    /// Occurs when the provided blurhash's lenght is not the same as the expected
+    /// length that was extracted from the 'header' (first char) of the blurhash
     InvalidLength,
-    BadFormat,
-    UnsupportedMode
+    /// Occurs when the provided punch is not a non-zero positive float.
+    InvalidPunch,
+    /// The blurhash contains invalid base83 codes.
+    BadFormat(base83::Base83ConversionError),
+    /// The blurhash's number of X or Y components was greater than 9.
+    UnsupportedMode,
+}
+
+impl std::fmt::Display for BlurhashError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        use BlurhashError::*;
+        match self {
+            InvalidLength => write!(fmt, "The extracted length of the blurhash does not match the actual length"),
+            InvalidPunch => write!(fmt, "The punch parameter must be positive and non-zero"),
+            BadFormat(kind) => write!(fmt, "The blurhash contains invalid base83 codes ({kind:?})"),
+            UnsupportedMode => write!(fmt, "The blurhash's number of X or Y components was greater than 9")
+        }
+    }
 }
 
 impl From<base83::Base83ConversionError> for BlurhashError {
-    fn from(_: base83::Base83ConversionError) -> Self {
-        Self::BadFormat
+    fn from(err: base83::Base83ConversionError) -> Self {
+        Self::BadFormat(err)
     }
 }
 
@@ -139,17 +184,22 @@ impl DCTResult {
     /// Generate an image from this DCT Result to recreate (sort of) the original
     /// image. This function allocates a vector of (width * height) pixels in
     /// the linear space.
-    pub fn to_linear(&self, width: usize, height: usize) -> Vec<Linear> {
+    pub fn to_image<T>(&self, width: usize, height: usize, convert: fn(Linear) -> T) -> Vec<T> {
         let mut pixels = Vec::with_capacity(width * height);
 
         for y in 0..height {
+            let percent_y = y as f32 / height as f32;
             for x in 0..width {
-                let mut col = [0., 0., 0.];
+                let percent_x = x as f32 / width as f32;
 
-                inv_multiply_basis(self.x_components, self.y_components,
-                    x, y, width, height,  &mut col, &self.currents);
+                let mut col = inv_multiply_basis(self.x_components, self.y_components,
+                    percent_x, percent_y, &self.currents);
 
-                pixels.push(col);
+                col[0] = col[0].max(0.).min(1.);
+                col[1] = col[1].max(0.).min(1.);
+                col[2] = col[2].max(0.).min(1.);
+
+                pixels.push(convert(col));
             }
         }
 
@@ -160,74 +210,35 @@ impl DCTResult {
     /// image. This function allocates a vector of (width * height) pixels in
     /// the sRGB space as in [RR, GG, BB].
     pub fn to_rgb8(&self, width: usize, height: usize) -> Vec<[u8; 3]> {
-        let mut pixels = Vec::with_capacity(width * height);
-
-        for y in 0..height {
-            for x in 0..width {
-                let mut col = [0., 0., 0.];
-
-                inv_multiply_basis(self.x_components, self.y_components,
-                    x, y, width, height,  &mut col, &self.currents);
-
-                pixels.push([
-                    linear_to_srgb(col[0]),
-                    linear_to_srgb(col[1]),
-                    linear_to_srgb(col[2]),
-                ]);
-            }
-        }
-
-        pixels
+        self.to_image(width, height, |col| [
+            linear_to_srgb(col[0]),
+            linear_to_srgb(col[1]),
+            linear_to_srgb(col[2]),
+        ])
     }
 
     /// Generate an image from this DCT Result to recreate (sort of) the original
     /// image. This function allocates a vector of (width * height) pixels in
     /// the sRGB space as in [RR, GG, BB, AA]. (alpha will always be 255).
     pub fn to_rgba8(&self, width: usize, height: usize) -> Vec<[u8; 4]> {
-        let mut pixels = Vec::with_capacity(width * height);
-
-        for y in 0..height {
-            for x in 0..width {
-                let mut col = [0., 0., 0.];
-
-                inv_multiply_basis(self.x_components, self.y_components,
-                    x, y, width, height,  &mut col, &self.currents);
-
-                pixels.push([
-                    linear_to_srgb(col[0]),
-                    linear_to_srgb(col[1]),
-                    linear_to_srgb(col[2]),
-                    255
-                ]);
-            }
-        }
-
-        pixels
+        self.to_image(width, height, |col| [
+            linear_to_srgb(col[0]),
+            linear_to_srgb(col[1]),
+            linear_to_srgb(col[2]),
+            255
+        ])
     }
 
     /// Generate an image from this DCT Result to recreate (sort of) the original
     /// image. This function allocates a vector of (width * height) u32 in
     /// the sRGB space as in AARRGGBB in hex (alpha will always be 255).
     pub fn to_rgba(&self, width: usize, height: usize) -> Vec<u32> {
-        let mut pixels = Vec::with_capacity(width * height);
-
-        for y in 0..height {
-            for x in 0..width {
-                let mut col = [0., 0., 0.];
-
-                inv_multiply_basis(self.x_components, self.y_components,
-                    x, y, width, height,  &mut col, &self.currents);
-
-                pixels.push(
-                    ((linear_to_srgb(col[2]) as u32) <<  0) |
-                    ((linear_to_srgb(col[1]) as u32) <<  8) |
-                    ((linear_to_srgb(col[0]) as u32) << 16) |
-                    ((255                    as u32) << 24)
-                );
-            }
-        }
-
-        pixels
+        self.to_image(width, height, |col|
+            ((linear_to_srgb(col[2]) as u32) <<  0) |
+            ((linear_to_srgb(col[1]) as u32) <<  8) |
+            ((linear_to_srgb(col[0]) as u32) << 16) |
+            ((255                    as u32) << 24)
+        )
     }
 
     /// Retrieve the currents of the DCT. The returned array is
@@ -306,7 +317,7 @@ impl AsLinear for u32 {
     }
 }
 
-/// Compute the blurhash string from the DCT result using the wolt/blurhash algorithm.
+/// Compute the blurhash string from the DCT result using the wolt/blurhash format.
 /// This function allocates a string of length (1 + 1 + 4 + 2 * components) where
 /// components is the total number of components (components_x * components_y).
 pub fn encode(dct: &DCTResult) -> String {
@@ -335,8 +346,13 @@ pub fn encode(dct: &DCTResult) -> String {
     blurhash
 }
 
+/// Decode a blurhash to retrive the DCT results (containing the color frequencies
+/// disposition) using the wolt/blurhash format. This function may allocate up to a
+/// vector of length 81 contained in the DCTResult struct.
 pub fn decode(blurhash: &str, punch: f32) -> Result<DCTResult, BlurhashError> {
-    assert!(punch != 0.);
+    if punch <= 0. {
+        return Err(BlurhashError::InvalidPunch)
+    }
 
     if blurhash.is_empty() {
         return Err(BlurhashError::InvalidLength)
@@ -391,7 +407,7 @@ pub fn compute_dct_iter<T: AsLinear>(image: impl Iterator<Item = T>, width: usiz
         multiply_basis(x_components, y_components, percent_x, percent_y, &col, &mut currents);
     }
 
-    let ac_max = normalize_and_max(&mut currents, width * height);
+    let ac_max = normalize_and_max(&mut currents, total);
 
     DCTResult { ac_max, currents, x_components, y_components }
 }
@@ -406,6 +422,7 @@ pub fn compute_dct_iter<T: AsLinear>(image: impl Iterator<Item = T>, width: usiz
 /// Note: To generate a valid blurhash, the number of X or/and Y components
 /// must be between 1 and 9. This is a limitation of the encoding scheme.
 pub fn compute_dct<T: AsLinear>(image: &[T], width: usize, height: usize, x_components: usize, y_components: usize) -> DCTResult {
+    assert!(image.len() >= width * height);
     let mut currents: Vec<Factor> = vec![[0., 0., 0.]; x_components * y_components];
 
     for y in 0..height {
@@ -425,7 +442,9 @@ pub fn compute_dct<T: AsLinear>(image: &[T], width: usize, height: usize, x_comp
 
 /// Compute an iteration of the DCT for every component on the pixel (x, y)
 /// that have the color `col` in linear space. Note that the currents slice must
-/// be long enough (x_comps * y_comps).
+/// be long enough (x_comps * y_comps) and the pixel coordinates (x, y) are between
+/// 0 and 1.
+#[inline]
 pub fn multiply_basis(x_comps: usize, y_comps: usize, x: f32, y: f32, col: &[f32; 3], currents: &mut [Factor]) {
     for comp_y in 0..y_comps {
         let base_y = (PI * comp_y as f32 * y).cos();
@@ -446,14 +465,16 @@ pub fn multiply_basis(x_comps: usize, y_comps: usize, x: f32, y: f32, col: &[f32
 /// Compute an iteration of the inverse DCT for every component on the pixel (x, y)
 /// and stores the color of that pixel into `col`. Note that the currents slice must
 /// be long enough (x_comps * y_comps).
-pub fn inv_multiply_basis(x_comps: usize, y_comps: usize, x: usize, y: usize, width: usize, height: usize, col: &mut [f32; 3], currents: &[Factor]) {
+#[inline]
+pub fn inv_multiply_basis(x_comps: usize, y_comps: usize, x: f32, y: f32, currents: &[Factor]) -> [f32; 3] {
+    let mut col = [0.; 3];
     for comp_y in 0..y_comps {
-        let base_y = (PI * comp_y as f32 * y as f32 / height as f32).cos();
+        let base_y = (PI * comp_y as f32 * y).cos();
 
         for comp_x in 0..x_comps {
             let f = currents[comp_y * x_comps + comp_x];
 
-            let base_x = (PI * comp_x as f32 * x as f32 / width as f32).cos();
+            let base_x = (PI * comp_x as f32 * x).cos();
             let basis = base_y * base_x;
 
             col[0] += basis * f[0];
@@ -461,6 +482,8 @@ pub fn inv_multiply_basis(x_comps: usize, y_comps: usize, x: usize, y: usize, wi
             col[2] += basis * f[2];
         }
     }
+
+    col
 }
 
 /// Normalizes in-plae the currents by a predefined quantization table for the
@@ -622,9 +645,10 @@ mod tests {
             assert!((a - b).abs() < 0.05, "{a}, {b}: Error too big at index {i}");
         }
 
-        let generated = inv.to_rgba(4, 4);
-        for (i, &pixel) in generated.iter().enumerate() {
-            assert_eq!(pixel, 0xFFFFFFFFu32, "Error too high at index {i}");
+        let generated = inv.to_image(4, 4, |p| p);
+        println!("{generated:?}");
+        for (i, &pixel) in generated.iter().flatten().enumerate() {
+            assert!((pixel - 1.).abs() < 0.05, "Expected white pixel got {pixel} at index {i}");
         }
     }
 
@@ -644,9 +668,9 @@ mod tests {
             assert!((a - b).abs() < 0.05, "{a}, {b} at index {i}");
         }
 
-        let generated = inv.to_rgba(4, 4);
-        for (i, &pixel) in generated.iter().enumerate() {
-            assert_eq!(pixel, 0xFF000000u32, "Error too high at index {i}");
+        let generated = inv.to_image(4, 4, |p| p);
+        for (i, &pixel) in generated.iter().flatten().enumerate() {
+            assert!((pixel - 0.).abs() < 0.05, "Expected black pixel got {pixel} at index {i}");
         }
     }
 

@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use fast_blurhash::{compute_dct, compute_dct_iter, encode};
+use fast_blurhash::{compute_dct, compute_dct_iter, encode, decode};
 use ril::prelude::Image;
 
 fn blurhash_benches(c: &mut Criterion) {
@@ -21,7 +21,20 @@ fn blurhash_benches(c: &mut Criterion) {
     }));
 
     c.bench_function("encode_blurhash", |b| b.iter(|| {
-        encode(black_box(dct.clone()));
+        encode(black_box(&dct));
+    }));
+
+    let blurhash = encode(&dct);
+    c.bench_function("decode_blurhash", |b| b.iter(|| {
+        decode(black_box(&blurhash), 1.);
+    }));
+
+    c.bench_function("to_image", |b| b.iter(|| {
+        black_box(&dct).to_image(32, 48, |f| f);
+    }));
+
+    c.bench_function("to_rgba", |b| b.iter(|| {
+        black_box(&dct).to_rgba(32, 48);
     }));
 }
 
