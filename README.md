@@ -7,6 +7,8 @@ The base83 encode and decode are also both very fast!
 
 ## Usage
 
+### Generating a blurhash from an image
+
 Generating a blurhash from an image:
 ```rust
 use fast_blurhash::compute_dct;
@@ -36,6 +38,8 @@ Supported types to be used with compute_dct:
 > This crate also supports using your custom types (see the trait AsLinear and
 > examples in the documentation).
 
+### Generating a placeholder from a blurhash
+
 Generating an image from a blurhash:
 ```rust
 use fast_blurhash::decode;
@@ -56,7 +60,7 @@ Available generation functions:
 
 More documentation is available in rust docs.
 
-### TODO
+## TODO
 
 - [x] Add documentation
 - [x] Add decode
@@ -69,3 +73,5 @@ If you have any feedback, please open an issue. If you encounter any bugs or unw
 This projet is open to contributions, feel free to submit your pull requests!
 
 # License
+
+fast-blurhash is available under the Apache License 2.0 license. See the LICENSE file for more info.
