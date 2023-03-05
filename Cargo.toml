@@ -1,6 +1,6 @@
 [package]
 name = "fast-blurhash"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "A faster implementation of the BlurHash algorithm used to generate better looking placeholder for websites and mobile apps."
 license = "Apache-2.0"
