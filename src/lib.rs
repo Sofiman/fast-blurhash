@@ -32,7 +32,7 @@
 //! #### Example
 //!
 //! ```no_run
-//! use fast_blurhash::{AsLinear, Linear, compute_dct};
+//! use fast_blurhash::{convert::{AsLinear, Linear, srgb_to_linear}, compute_dct};
 //!
 //! struct MyColor {
 //!     r: u8,
@@ -42,7 +42,6 @@
 //!
 //! impl AsLinear for MyColor {
 //!     fn as_linear(&self) -> Linear {
-//!         use fast_blurhash::convert::srgb_to_linear;
 //!         [srgb_to_linear(self.r), srgb_to_linear(self.g), srgb_to_linear(self.b)]
 //!     }
 //! }
@@ -86,13 +85,12 @@
 //!
 //! #### Example
 //! ```no_run
-//! use fast_blurhash::{AsLinear, Linear, compute_dct_iter};
+//! use fast_blurhash::{convert::{AsLinear, Linear, srgb_to_linear}, compute_dct_iter};
 //!
 //! struct Color(u8, u8, u8);
 //!
 //! impl AsLinear for &Color {
 //!     fn as_linear(&self) -> Linear {
-//!         use fast_blurhash::convert::srgb_to_linear;
 //!         [srgb_to_linear(self.0), srgb_to_linear(self.1), srgb_to_linear(self.2)]
 //!     }
 //! }
@@ -109,13 +107,6 @@ pub mod convert;
 use std::f32::consts::PI;
 use convert::*;
 use base83::encode_fixed_to;
-
-/// RGB Color in the linear space
-pub type Linear = [f32; 3];
-/// RGB Frequencies of a specific cosine transform
-pub type Factor = [f32; 3];
-/// RGB 8-bit per channel color
-pub type Rgb = [u8; 3];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlurhashError {
@@ -279,44 +270,6 @@ impl DCTResult {
     }
 }
 
-/// Converts any kind of Color to the linear space to be used in with DCT
-pub trait AsLinear {
-    /// Returns the color represented in linear space.
-    fn as_linear(&self) -> Linear;
-}
-
-impl AsLinear for [u8; 3] {
-    fn as_linear(&self) -> Linear {
-        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
-    }
-}
-
-impl AsLinear for &[u8; 3] {
-    fn as_linear(&self) -> Linear {
-        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
-    }
-}
-
-impl AsLinear for [u8; 4] {
-    fn as_linear(&self) -> Linear {
-        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
-    }
-}
-
-impl AsLinear for &[u8; 4] {
-    fn as_linear(&self) -> Linear {
-        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
-    }
-}
-
-impl AsLinear for u32 {
-    fn as_linear(&self) -> Linear {
-        [srgb_to_linear(((self >> 16) & 0xFF) as u8), // red
-         srgb_to_linear(((self >>  8) & 0xFF) as u8), // green
-         srgb_to_linear(((self >>  0) & 0xFF) as u8)] // blue
-    }
-}
-
 /// Compute the blurhash string from the DCT result using the wolt/blurhash format.
 /// This function allocates a string of length (1 + 1 + 4 + 2 * components) where
 /// components is the total number of components (components_x * components_y).
@@ -337,7 +290,7 @@ pub fn encode(dct: &DCTResult) -> String {
         encode_fixed_to(0, 1, &mut blurhash);
     }
 
-    encode_fixed_to(encode_dc(currents[0]), 4, &mut blurhash);
+    encode_fixed_to(to_rgb(currents[0]), 4, &mut blurhash);
 
     for &ac in currents.iter().skip(1) {
         encode_fixed_to(encode_ac(ac, ac_max), 2, &mut blurhash);

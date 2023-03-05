@@ -1,5 +1,50 @@
 //! Color conversion and BlurHash specific encoding utilities
 
+/// RGB Color in the linear space
+pub type Linear = [f32; 3];
+/// RGB Frequencies of a specific cosine transform
+pub type Factor = [f32; 3];
+/// RGB 8-bit per channel color
+pub type Rgb = [u8; 3];
+
+/// Converts any kind of Color to the linear space to be used in with DCT
+pub trait AsLinear {
+    /// Returns the color represented in linear space.
+    fn as_linear(&self) -> Linear;
+}
+
+impl AsLinear for [u8; 3] {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
+    }
+}
+
+impl AsLinear for &[u8; 3] {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
+    }
+}
+
+impl AsLinear for [u8; 4] {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
+    }
+}
+
+impl AsLinear for &[u8; 4] {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(self[0]), srgb_to_linear(self[1]), srgb_to_linear(self[2])]
+    }
+}
+
+impl AsLinear for u32 {
+    fn as_linear(&self) -> Linear {
+        [srgb_to_linear(((self >> 16) & 0xFF) as u8), // red
+         srgb_to_linear(((self >>  8) & 0xFF) as u8), // green
+         srgb_to_linear(((self >>  0) & 0xFF) as u8)] // blue
+    }
+}
+
 /// Convert a single channel in linear space to sRGB space
 pub fn linear_to_srgb(linear: f32) -> u8 {
     let linear = linear.max(0.).min(1.);
@@ -20,11 +65,13 @@ pub fn srgb_to_linear(pixel: u8) -> f32 {
     }
 }
 
-/// Encodes a DC (average color) to an u32 to be encoded into a 4-digit base83
-pub fn encode_dc(dc: [f32; 3]) -> u32 {
-    let r = linear_to_srgb(dc[0]) as u32;
-    let g = linear_to_srgb(dc[1]) as u32;
-    let b = linear_to_srgb(dc[2]) as u32;
+/// Encodes a linear color to an u32 represented as RRGGBB in hex. This function
+/// is commonly used to convert the DC component into an u32 before generating a
+/// 4-digit base83 code.
+pub fn to_rgb(col: Linear) -> u32 {
+    let r = linear_to_srgb(col[0]) as u32;
+    let g = linear_to_srgb(col[1]) as u32;
+    let b = linear_to_srgb(col[2]) as u32;
     (r << 16) | (g << 8) | b
 }
 
