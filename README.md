@@ -7,7 +7,26 @@ looking placeholder for websites and mobile apps. This crates encode and decode
 functions minimizes the number of allocated vectors to reduce the memory footprint.
 The base83 encode and decode are also both very fast!
 
+## Credits
+
+The original implementation of the BlurHash algorithm can be found [here](https://github.com/woltapp/blurhash).
+
 ## Usage
+
+### Installation
+
+**fast_blurhash** is available on [crates.io](https://crates.io/crates/fast-blurhash)
+
+Use the cargo add command:
+```shell
+cargo add fast_blurhash
+```
+
+or add the crate in your Cargo.toml:
+```toml
+[dependencies]
+fast_blurhash = "1"
+```
 
 ### Generating a blurhash from an image
 
@@ -53,10 +72,10 @@ let image: Vec<u32> = decode(&blurhash, 1.).unwrap().to_rgba(32, 32);
 Available generation functions:
 | Function | Return type | Disposition | Notes |
 |---|---|---|---|
-| to_image<T>(width, height, fn(Linear) -> T) | Vec<T> | Linear: [Red, Green, Blue] | Linear is a builtin type that represents a color in linear space. |
+| to_image<\T>(width, height, fn(Linear) -> T) | Vec<\T> | Linear: [Red, Green, Blue] | Linear is a builtin type that represents a color in linear space. |
 | to_rgb8(width, height) | Vec<[u8; 3]> | [Red, Green, Blue] |  |
 | to_rgba8(width, height) | Vec<[u8; u4]> | [Red, Green, Blue, Alpha] | Alpha will always be 255 |
-| to_rgba(width, height) | Vec<u32> | 0xAARRGGBB where A is alpha | Alpha will always be 255 |
+| to_rgba(width, height) | Vec<\u32> | 0xAARRGGBB where A is alpha | Alpha will always be 255 |
 
 ## Documentation
 
