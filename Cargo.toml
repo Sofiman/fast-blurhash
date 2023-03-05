@@ -4,6 +4,8 @@ version = "1.0.0"
 edition = "2021"
 description = "A faster implementation of the BlurHash algorithm used to generate better looking placeholder for websites and mobile apps."
 license = "Apache-2.0"
+repository = "https://github.com/Sofiman/fast-blurhash"
+keywords = ["placeholder", "blurhash", "image"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
